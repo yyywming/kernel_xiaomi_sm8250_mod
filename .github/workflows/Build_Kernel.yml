@@ -442,7 +442,7 @@ jobs:
           echo "🔧 Applying SukiSU-Ultra Configuration... (应用 SukiSU-Ultra 配置)"
           scripts/config --file out/.config \
               -e KSU \
-              -e KPM \
+              -d KPM \
               -e KSU_MANUAL_HOOK \
               -e KSU_SUSFS \
               -e KSU_SUSFS_HAS_MAGIC_MOUNT \
@@ -514,25 +514,9 @@ jobs:
 
       - name: 🛠️ KPM Patching Image Files (KPM 修补 Image 文件)
         run: |
-          #KSU_VARIANT="${{ github.event.inputs.kernelsu_variant }}"
-          #KPM_ENABLE="${{ github.event.inputs.kpm_enable }}"
-          
-          #if [ "$KSU_VARIANT" == "SukiSU-Ultra" ] && [ "$KPM_ENABLE" == "enable" ]; then
-            echo "🛠️ 正在修补 Image 文件..."
-            cd "$KERNEL_SOURCE/out/arch/arm64/boot"
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-            chmod 777 patch
-            ./patch
-            if [ $? -eq 0 ]; then
-              rm -f Image
-              mv oImage Image
-              echo "✅ Image file repair complete (Image 文件修补完成)"
-            else
-              echo "❌ KPM Patch Failed, Use Original Image (KPM 修补失败，使用原始 Image)"
-            fi
-          #else 
-          #  echo "ℹ️ KPM is not enabled or KernelSU variants do not support KPM. (KPM 未启用或 KernelSU 变体不支持 KPM)"
-          #fi
+          echo "ℹ️ KPM disabled (4.19 incompatible). Skipping KPM patch. (KPM 已禁用，跳过补丁)"
+          # KPM 关闭说明：SukiSU v4.x 的 KPM 使用了 5.0+ 的 access_ok(addr,size) 签名，
+          # 与 4.19 内核不兼容，编译会报 too few arguments。KPM 是可选功能，关闭不影响 SUSFS 和 root。
 
       - name: 📝 Setting Version Variables (设置版本变量)
         run: |
