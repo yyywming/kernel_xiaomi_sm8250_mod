@@ -197,7 +197,7 @@ jobs:
           
           echo "⚙️ KernelSU Version: $KSU_VARIANT (KernelSU 版本: $KSU_VARIANT)"
           
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/susfs_new/kernel/setup.sh" | bash -s susfs_new
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/6cbe13dafc3136e7d749f9925c587af73e1042d6/kernel/setup.sh" | bash -s 6cbe13dafc3136e7d749f9925c587af73e1042d6
           
           echo "✅ $KSU_VARIANT configuration complete ($KSU_VARIANT 配置完成)"
 
@@ -265,16 +265,18 @@ jobs:
         run: |
           cd "$KERNEL_SOURCE"
           echo "🔧 修复 MODULE_IMPORT_NS (4.19 内核不支持该宏)..."
-          INIT_C="drivers/kernelsu/core/init.c"
-          if [ -f "$INIT_C" ]; then
-            cp "$INIT_C" "$INIT_C.orig"
-            sed -i '/MODULE_IMPORT_NS/d' "$INIT_C"
-            echo "--- patched section (line 235-248) ---"
-            sed -n '235,248p' "$INIT_C"
-            echo "--- verify no MODULE_IMPORT_NS left ---"
-            grep -c "MODULE_IMPORT_NS" "$INIT_C" || echo "0 (clean)"
-          else
-            echo "WARN: $INIT_C not found, skipping"
+          FIXED=0
+          for f in drivers/kernelsu/ksu.c drivers/kernelsu/core/init.c; do
+            if [ -f "$f" ]; then
+              cp "$f" "$f.orig"
+              sed -i '/MODULE_IMPORT_NS/d' "$f"
+              n=$(grep -c "MODULE_IMPORT_NS" "$f" || true)
+              echo "  patched $f (remaining refs: $n)"
+              FIXED=1
+            fi
+          done
+          if [ "$FIXED" = "0" ]; then
+            echo "WARN: no target files found, skipping"
           fi
           echo "OK: 4.19 compatibility fix applied"
 
