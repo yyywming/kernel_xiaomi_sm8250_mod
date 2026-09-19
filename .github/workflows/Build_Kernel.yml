@@ -189,17 +189,11 @@ jobs:
           
           echo "✅ Toolchain download complete (工具链下载完成)"
 
-      - name: ⚙️ Configuring KernelSU (配置 KernelSU)
+      - name: ⚙️ Skip KernelSU (跳过 KernelSU，改用 Magisk)
         run: |
-          cd "$KERNEL_SOURCE"
-          
-          KSU_VARIANT="SukiSU-Ultra"
-          
-          echo "⚙️ KernelSU Version: $KSU_VARIANT (KernelSU 版本: $KSU_VARIANT)"
-          
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/6cbe13dafc3136e7d749f9925c587af73e1042d6/kernel/setup.sh" | bash -s 6cbe13dafc3136e7d749f9925c587af73e1042d6
-          
-          echo "✅ $KSU_VARIANT configuration complete ($KSU_VARIANT 配置完成)"
+          echo "ℹ️ KernelSU/SukiSU disabled. Using Magisk (already installed on device)."
+          echo "ℹ️ 原因：SukiSU 新版依赖 5.x 内核 API（sepolicy 结构体等），与 4.19 不兼容。"
+          echo "ℹ️ 容器功能不需要 KernelSU，Magisk 已足够。"
 
       - name: 🛠️ Setup LXC (安装 LXC 补丁)
         run: |
@@ -238,65 +232,19 @@ jobs:
             echo "ℹ️ LXC is not enabled. (LXC 未启用)"
           fi
 
-      - name: 🛠️ Setup patches for SukiSU (为 SukiSU 安装补丁)
+      - name: 🛠️ Skip SukiSU patches (跳过 SukiSU 补丁)
+        run: |
+          echo "ℹ️ SukiSU/SUSFS patches skipped."
+
+      - name: ✅ Verify LXC/Docker config (验证容器配置)
         run: |
           cd "$KERNEL_SOURCE"
-          echo "Applying patches for SukiSU..."
-          
-          #SUSFS for SukiSU 补丁：
-          git clone https://github.com/ShirkNeko/susfs4ksu.git -b kernel-4.19
-          cp ./susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch ./
-          cp ./susfs4ksu/kernel_patches/fs/* ./fs/
-          cp ./susfs4ksu/kernel_patches/include/linux/* ./include/linux/
-          patch -p1 -F 3 < 50_add_susfs_in_kernel-4.19.patch || true
-          
-          #内核钩子补丁：
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          cp ./SukiSU_patch/4.19/ksu_hooks_sukisu_4.19.patch ./
-          patch -p1 -F 3 < ksu_hooks_sukisu_4.19.patch || true
-          
-          #特征隐藏补丁：
-          cp ./SukiSU_patch/69_hide_stuff.patch ./
-          patch -p1 -F 3 < 69_hide_stuff.patch || true
-          
-          echo "补丁完成！"
-          
-      - name: 🔧 Fix SukiSU 4.19 compatibility (修复 SukiSU 与 4.19 内核兼容性)
-        run: |
-          cd "$KERNEL_SOURCE"
-          echo "🔧 修复 MODULE_IMPORT_NS (4.19 内核不支持该宏)..."
-          FIXED=0
-          # (a) 去掉 MODULE_IMPORT_NS（5.4+ 才有的宏）
-          for f in drivers/kernelsu/ksu.c drivers/kernelsu/core/init.c; do
-            if [ -f "$f" ]; then
-              cp "$f" "$f.orig"
-              sed -i '/MODULE_IMPORT_NS/d' "$f"
-              n=$(grep -c "MODULE_IMPORT_NS" "$f" || true)
-              echo "  patched $f (remaining refs: $n)"
-              FIXED=1
-            fi
-          done
-
-          # (b) 删除 selinux.c 里的 current_sid() 重复定义
-          #     原因：drivers/kernelsu 是 symlink，SukiSU 的 selinux/Makefile 里
-          #     $(srctree) 检测失败 -> KSU_COMPAT_HAS_CURRENT_SID 未定义 ->
-          #     selinux.c 又定义了一遍 current_sid()，与内核 objsec.h 冲突。
-          #     直接按行范围删除（内核已提供该函数）。
-          SEL_C="drivers/kernelsu/selinux/selinux.c"
-          if [ -f "$SEL_C" ]; then
-            cp "$SEL_C" "$SEL_C.orig"
-            sed -i '/#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))/,/#endif/d' "$SEL_C"
-            echo "  patched $SEL_C (removed duplicate current_sid block)"
-            grep -n "is_ksu_domain" "$SEL_C" | head -2
-            FIXED=1
-          else
-            echo "  WARN: $SEL_C not found"
-          fi
-
-          if [ "$FIXED" = "0" ]; then
-            echo "WARN: no target files found, skipping"
-          fi
-          echo "OK: 4.19 compatibility fix applied"
+          echo "🔍 验证 defconfig 中的容器配置项..."
+          grep -E "CONFIG_DOCKER|CONFIG_ANDROID_PARANOID" arch/arm64/configs/${DEVICE}_defconfig || true
+          echo "--- utils/Kconfig 是否存在 ---"
+          ls -la utils/Kconfig 2>/dev/null || echo "WARN: utils/Kconfig missing"
+          echo "--- Kconfig 是否 source utils ---"
+          grep -n 'utils/Kconfig' Kconfig || echo "WARN: not sourced"
 
       - name: 🔨 Build the kernel (构建内核)
         run: |
@@ -475,29 +423,93 @@ jobs:
                   -d PERF_HUMANTASK
           fi
             
-          # 添加 KSU 配置
-          echo "🔧 Applying SukiSU-Ultra Configuration... (应用 SukiSU-Ultra 配置)"
+          # Droidspaces / 容器 必需配置（4.19 兼容）
+          echo "Applying Droidspaces/container config (应用容器配置)..."
+          # 注意：scripts/config 遇到内核里不存在的选项会非零退出，用 set +e 容错
+          set +e
           scripts/config --file out/.config \
-              -e KSU \
-              -d KPM \
-              -e KSU_MANUAL_HOOK \
-              -e KSU_SUSFS \
-              -e KSU_SUSFS_HAS_MAGIC_MOUNT \
-              -e KSU_SUSFS_SUS_PATH \
-              -e KSU_SUSFS_SUS_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-              -e KSU_SUSFS_SUS_KSTAT \
-              -d KSU_SUSFS_SUS_OVERLAYFS \
-              -e KSU_SUSFS_TRY_UMOUNT \
-              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
-              -e KSU_SUSFS_SPOOF_UNAME \
-              -e KSU_SUSFS_ENABLE_LOG \
-              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              -e KSU_SUSFS_OPEN_REDIRECT \
-              -d KSU_SUSFS_SUS_SU
-            
+              -e SYSVIPC \
+              -e POSIX_MQUEUE \
+              -e NAMESPACES \
+              -e PID_NS \
+              -e UTS_NS \
+              -e IPC_NS \
+              -e NET_NS \
+              -e USER_NS \
+              -e CGROUPS \
+              -e CGROUP_DEVICE \
+              -e CGROUP_PIDS \
+              -e CGROUP_SCHED \
+              -e FAIR_GROUP_SCHED \
+              -e CGROUP_FREEZER \
+              -e CGROUP_NET_PRIO \
+              -e MEMCG \
+              -e BLK_CGROUP \
+              -e CPUSETS \
+              -e SECCOMP \
+              -e SECCOMP_FILTER \
+              -e DEVTMPFS \
+              -e DEVTMPFS_MOUNT \
+              -e OVERLAY_FS \
+              -e TMPFS_POSIX_ACL \
+              -e TMPFS_XATTR \
+              -e VETH \
+              -e BRIDGE \
+              -e BRIDGE_NETFILTER \
+              -e NETFILTER_ADVANCED \
+              -e NF_CONNTRACK \
+              -e IP_NF_IPTABLES \
+              -e IP_NF_FILTER \
+              -e NF_NAT \
+              -e IP_NF_TARGET_MASQUERADE \
+              -e NETFILTER_XT_MATCH_ADDRTYPE \
+              -e NETFILTER_XT_MATCH_CONNTRACK \
+              -e NETFILTER_XT_TARGET_CHECKSUM \
+              -e NETFILTER_XT_MATCH_COMMENT \
+              -e NETFILTER_XT_MATCH_STATE \
+              -e NETFILTER_XT_MATCH_MULTIPORT \
+              -e NETFILTER_XT_MATCH_HL \
+              -e NETFILTER_XT_TARGET_REJECT \
+              -e IP_NF_TARGET_REJECT \
+              -e NETFILTER_XT_TARGET_LOG \
+              -e NETFILTER_XT_MATCH_RECENT \
+              -e NETFILTER_XT_MATCH_LIMIT \
+              -e NETFILTER_XT_MATCH_HASHLIMIT \
+              -e NETFILTER_XT_MATCH_OWNER \
+              -e NETFILTER_XT_MATCH_PKTTYPE \
+              -e NETFILTER_XT_MATCH_MARK \
+              -e NETFILTER_XT_TARGET_MARK \
+              -e IP_ADVANCED_ROUTER \
+              -e IP_MULTIPLE_TABLES \
+              -e NF_NAT_REDIRECT \
+              -e NF_NAT_NEEDED \
+              -e IP_NF_NAT \
+              -e NF_NAT_IPV4 \
+              -e VXLAN \
+              -e MACVLAN \
+              -e IPVLAN \
+              -e DUMMY \
+              -e BINFMT_MISC \
+              -e BLK_DEV_THROTTLING \
+              -e FHANDLE \
+              -e UNIX_DIAG \
+              -e PACKET_DIAG \
+              -e NETLINK_DIAG \
+              -e KEYS \
+              -e PERSISTENT_KEYRINGS \
+              -e ENCRYPTED_KEYS \
+              -e HUGETLBFS \
+              -e CHECKPOINT_RESTORE \
+              -d ANDROID_PARANOID_NETWORK
+
+          echo "container config applied (容器配置已应用)"
+          set -e
+          echo "--- 验证关键项 ---"
+          for k in PID_NS USER_NS IPC_NS CGROUP_DEVICE CGROUP_PIDS OVERLAY_FS VETH NF_NAT IP_NF_TARGET_MASQUERADE; do
+            v=$(grep -E "^(# )?CONFIG_${k}(=| )" out/.config | head -1)
+            echo "  $k => ${v:-MISSING}"
+          done
+
           # 判断KPM是否启用并开启相关配置
           #if [ "$KSU" == "SukiSU-Ultra" ] && [ "$KPM" == "enable" ]; then
           #    echo "🔧 Enabling KPM Configuration... (开启 KPM 配置)"
@@ -571,7 +583,7 @@ jobs:
         run: |
           # 定义变量
           SYSTEM="${{ github.event.inputs.compiled_system }}"
-          KSU="SukiSU-Ultra"
+          KSU="NoKSU"
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
           BUILD_ID="${{ env.GIT_COMMIT_ID }}"
           BUILD_DATE="${{ env.BUILD_DATE }}"
@@ -657,8 +669,8 @@ jobs:
       
           - **目标机型:** ${{ env.TARGET_DEVICES }}
           - **适用系统:** ${{ github.event.inputs.compiled_system }}
-          - **KernelSU版本:** SukiSU-Ultra
-          - **KPM支持:** True
+          - **KernelSU版本:** None (Magisk root)
+          - **KPM支持:** False
           - **LXC支持:** ${{ github.event.inputs.lxc_enable }}
           - **构建类型:** ${{ github.event.inputs.build_type }}
           - **构建日期:** ${{ env.RELEASE_DATE }}
