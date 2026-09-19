@@ -653,3 +653,5 @@ jobs:
           3. 若你之前已刷入SukiSU Ultra内核，且SukiSU Ultra管理器已更新至最新版本，可在SukiSU Ultra管理器中直接刷入AnyKernel刷机包并重启
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# fork-activate
