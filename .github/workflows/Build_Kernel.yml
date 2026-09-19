@@ -266,6 +266,7 @@ jobs:
           cd "$KERNEL_SOURCE"
           echo "🔧 修复 MODULE_IMPORT_NS (4.19 内核不支持该宏)..."
           FIXED=0
+          # (a) 去掉 MODULE_IMPORT_NS（5.4+ 才有的宏）
           for f in drivers/kernelsu/ksu.c drivers/kernelsu/core/init.c; do
             if [ -f "$f" ]; then
               cp "$f" "$f.orig"
@@ -275,6 +276,31 @@ jobs:
               FIXED=1
             fi
           done
+
+          # (b) 强制定义 KSU_COMPAT_HAS_CURRENT_SID
+          #     原因：drivers/kernelsu 是 symlink，SukiSU 的 selinux/Makefile 用
+          #     $(srctree)/security/... 检测 objsec.h 会失败，导致 selinux.c 里
+          #     current_sid() 重复定义。
+          MK="drivers/kernelsu/selinux/Makefile"
+          if [ -f "$MK" ]; then
+            if ! grep -q "^-DKSU_COMPAT_HAS_CURRENT_SID" "$MK" 2>/dev/null; then
+              # 直接追加无条件定义（放最前面，后面的条件块即使失败也无所谓）
+              sed -i '1i ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID -DKSU_COMPAT_HAS_SELINUX_STATE' "$MK"
+              echo "  patched $MK (force-define compat macros)"
+              head -3 "$MK"
+            fi
+            FIXED=1
+          else
+            echo "  WARN: $MK not found (will try alternative)"
+            # 兜底：找真实路径
+            REAL_MK=$(find "$KERNEL_SOURCE/KernelSU" -name Makefile -path "*selinux*" 2>/dev/null | head -1)
+            if [ -n "$REAL_MK" ]; then
+              sed -i '1i ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID -DKSU_COMPAT_HAS_SELINUX_STATE' "$REAL_MK"
+              echo "  patched (alt) $REAL_MK"
+              FIXED=1
+            fi
+          fi
+
           if [ "$FIXED" = "0" ]; then
             echo "WARN: no target files found, skipping"
           fi
