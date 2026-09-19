@@ -261,6 +261,23 @@ jobs:
           
           echo "补丁完成！"
           
+      - name: 🔧 Fix SukiSU 4.19 compatibility (修复 SukiSU 与 4.19 内核兼容性)
+        run: |
+          cd "$KERNEL_SOURCE"
+          echo "🔧 修复 MODULE_IMPORT_NS (4.19 内核不支持该宏)..."
+          INIT_C="drivers/kernelsu/core/init.c"
+          if [ -f "$INIT_C" ]; then
+            cp "$INIT_C" "$INIT_C.orig"
+            sed -i '/MODULE_IMPORT_NS/d' "$INIT_C"
+            echo "--- patched section (line 235-248) ---"
+            sed -n '235,248p' "$INIT_C"
+            echo "--- verify no MODULE_IMPORT_NS left ---"
+            grep -c "MODULE_IMPORT_NS" "$INIT_C" || echo "0 (clean)"
+          else
+            echo "WARN: $INIT_C not found, skipping"
+          fi
+          echo "OK: 4.19 compatibility fix applied"
+
       - name: 🔨 Build the kernel (构建内核)
         run: |
           cd "$KERNEL_SOURCE"
