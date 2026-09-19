@@ -197,7 +197,7 @@ jobs:
           
           echo "⚙️ KernelSU Version: $KSU_VARIANT (KernelSU 版本: $KSU_VARIANT)"
           
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/susfs-main/kernel/setup.sh" | bash -s susfs-main
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/susfs_new/kernel/setup.sh" | bash -s susfs_new
           
           echo "✅ $KSU_VARIANT configuration complete ($KSU_VARIANT 配置完成)"
 
@@ -653,5 +653,3 @@ jobs:
           3. 若你之前已刷入SukiSU Ultra内核，且SukiSU Ultra管理器已更新至最新版本，可在SukiSU Ultra管理器中直接刷入AnyKernel刷机包并重启
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-# fork-activate
