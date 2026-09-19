@@ -277,28 +277,20 @@ jobs:
             fi
           done
 
-          # (b) 强制定义 KSU_COMPAT_HAS_CURRENT_SID
-          #     原因：drivers/kernelsu 是 symlink，SukiSU 的 selinux/Makefile 用
-          #     $(srctree)/security/... 检测 objsec.h 会失败，导致 selinux.c 里
-          #     current_sid() 重复定义。
-          MK="drivers/kernelsu/selinux/Makefile"
-          if [ -f "$MK" ]; then
-            if ! grep -q "^-DKSU_COMPAT_HAS_CURRENT_SID" "$MK" 2>/dev/null; then
-              # 直接追加无条件定义（放最前面，后面的条件块即使失败也无所谓）
-              sed -i '1i ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID -DKSU_COMPAT_HAS_SELINUX_STATE' "$MK"
-              echo "  patched $MK (force-define compat macros)"
-              head -3 "$MK"
-            fi
+          # (b) 删除 selinux.c 里的 current_sid() 重复定义
+          #     原因：drivers/kernelsu 是 symlink，SukiSU 的 selinux/Makefile 里
+          #     $(srctree) 检测失败 -> KSU_COMPAT_HAS_CURRENT_SID 未定义 ->
+          #     selinux.c 又定义了一遍 current_sid()，与内核 objsec.h 冲突。
+          #     直接按行范围删除（内核已提供该函数）。
+          SEL_C="drivers/kernelsu/selinux/selinux.c"
+          if [ -f "$SEL_C" ]; then
+            cp "$SEL_C" "$SEL_C.orig"
+            sed -i '/#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))/,/#endif/d' "$SEL_C"
+            echo "  patched $SEL_C (removed duplicate current_sid block)"
+            grep -n "is_ksu_domain" "$SEL_C" | head -2
             FIXED=1
           else
-            echo "  WARN: $MK not found (will try alternative)"
-            # 兜底：找真实路径
-            REAL_MK=$(find "$KERNEL_SOURCE/KernelSU" -name Makefile -path "*selinux*" 2>/dev/null | head -1)
-            if [ -n "$REAL_MK" ]; then
-              sed -i '1i ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID -DKSU_COMPAT_HAS_SELINUX_STATE' "$REAL_MK"
-              echo "  patched (alt) $REAL_MK"
-              FIXED=1
-            fi
+            echo "  WARN: $SEL_C not found"
           fi
 
           if [ "$FIXED" = "0" ]; then
